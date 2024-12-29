@@ -1,0 +1,17 @@
+The install that finally worked:
+pip install torch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1 -f https://download.pytorch.org/whl/cu112/torch_stable.html
+
+
+Reward Function:
+reward 
+= 0.1 * speed_reward: maintaining a reasonable speed (less relevant for drone b/c speed is car dependent) 
++ 1.0 * waypoint_reward: "reaching its waypoint" -->  maintaining a good view of the target car
+- 2.0 * collision_penalty: hitting something (very relevant for drone) 
+- 0.5 * off_road_penalty: driving off the road (less relevant - the air will be open for the most part, so really need to satisfy 1 and 2)
+
+Reward factors ranking
+1. waypoint_reward: "reaching its waypoint" -->  maintaining a good view of the target car
+2. collision_penalty: hitting something (very relevant for drone)
+3. off_road_penalty: driving off the road (less relevant - the air will be open for the most part, so really need to satisfy 1 and 2) -->
+	can become --> Stability of tracking: Potential rewards for minimizing rapid or erratic movements while following the target.
+X 4. speed_reward: maintaining a reasonable speed (less relevant for drone b/c speed is car dependent)
