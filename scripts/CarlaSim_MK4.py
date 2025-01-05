@@ -1,7 +1,10 @@
 ######## To Do ########
-# Visual Maintained is turning up 0, need to find why.
+# reward seems to often be -0.25, even though it is moving and visual is maintained:
+# Visual Maintained is turning up 0, need to find why!!!
 ########################
 
+# C:\Users\legos\Documents\Miscellaneous\Programming\WindowsNoEditor
+# C:\Users\legos\Documents\Post Grad Learning\Projects\DinkleBot\scripts
 import carla
 import cv2
 import numpy as np
@@ -105,7 +108,7 @@ class CarlaEnv(gym.Env):
     def has_collided(self):
         # Return the collision status (collision has happened or not) and reset the flag
         collision_detected = self.collision_occurred
-        self.collision_occurred = False  # Reset the flag for the next step
+        # self.collision_occurred = False  # Reset the flag for the next step
         return collision_detected
 
     def show_camera_feed(self):
@@ -175,6 +178,8 @@ class CarlaEnv(gym.Env):
         seed = kwargs.get('seed', None)
         if seed is not None:
             np.random.seed(seed)
+
+        self.collision_occurred = False
 
         if self.record_video: # if the record video flag is set, do the following
             # Define the codec and create VideoWriter object
@@ -289,8 +294,15 @@ class CarlaEnv(gym.Env):
         # done = self.check_done()      # Commented out because we have nothing in the check done yet, seem to do it all elsewhere
         truncated = False  # If you want to use truncation (optional)   ##### ASK #######
         info = {}
-
+        if self.current_step % 100 == 0:
+            print("observation: ", observation)
+            print("reward: ", reward)
+            print("done: ", done)
+            print("truncated: ", truncated)
+            print("info: ", info)
+            # time.sleep(5)
         return observation, reward, done, truncated, info
+        # return observation, reward, done, info
 
     def get_observation(self):
         # observation, at this stage, is just the camera image after a step/action
@@ -322,11 +334,15 @@ class CarlaEnv(gym.Env):
 
         # Reward based on speed - NOT CURRENLTY USING - TECHNICALLY IRRELEVENT FOR OUR PURPOSES
         speed = self.vehicle.get_velocity()
-        speed_magnitude = np.linalg.norm([speed.x, speed.y, speed.z])
-        target_speed = 10.0  # Target speed in m/s
-        speed_diff = abs(target_speed - speed_magnitude)
-        speed_reward = max(0, 1.0 - speed_diff / target_speed)
-        speed_reward = 0.0
+        speed_magnitude = int(np.linalg.norm([speed.x, speed.y, speed.z]))
+        if speed_magnitude > 0:
+            speed_reward = 0.1  # small reward for being in motion
+        else:
+            speed_reward = -0.25  # tiny penalty for standing still
+        # target_speed = 10.0  # Target speed in m/s
+        # speed_diff = abs(target_speed - speed_magnitude)
+        # speed_reward = max(0, 1.0 - speed_diff / target_speed)
+        # speed_reward = 0.0
 
         # Penalty for collisions, if collided, we weight the punishment for the eventual reward calculation
         if self.has_collided():
@@ -351,20 +367,20 @@ class CarlaEnv(gym.Env):
 
         # Calculate total reward based on weighted sub rewards
         #reward = 0.1 * speed_reward + 1.0 * visual_maintained_reward - 1.0 * collision_penalty + - 0.5 * off_road_penalty + 1.0 * stability_reward
-        reward = 2.5 * visual_maintained_reward - 1.5 * collision_penalty + - 1.0 * off_road_penalty + 1.5 * stability_reward
+        reward = 2.5 * visual_maintained_reward - 1.5 * collision_penalty + - 1.0 * off_road_penalty + 1.5 * stability_reward + speed_reward
         
         # DEBUGGING CODE, I believe we were unable to see our hero car within the rendered world - ##### ASK #####
-        screen_position = self.get_target_screen_location(self.target_vehicle)
-        print("DEBUG Print:")
-        relative_location = self.target_location - self.camera_location
-        print(f"Relative Location: {relative_location}")
+        # screen_position = self.get_target_screen_location(self.target_vehicle)
+        # print("DEBUG Print:")
+        # relative_location = target_location - camera_location
+        # print(f"Relative Location: {relative_location}")
         # DEBUGGING CODE, I believe we were unable to see our hero car within the rendered world - ##### ASK #####
 
         # Debugging code to provide "status reports" throughout training - prints sub rewards, the total reward, and the screen position
-        if self.current_step == 1 or self.current_step % 50 == 0:
-            print(f"Visual Maintained: {visual_maintained_reward}, Stability: {stability_reward}, "
-          f"Collision: {-collision_penalty}, Off-road: {-off_road_penalty}, Total: {reward}")
-            print(f"Screen Position: {screen_position}")
+        # if self.current_step == 1 or self.current_step % 50 == 0:
+        #     print(f"Visual Maintained: {visual_maintained_reward}, Stability: {stability_reward}, "
+        #   f"Collision: {-collision_penalty}, Off-road: {-off_road_penalty}, Total: {reward}")
+        #     print(f"Screen Position: {screen_position}")
             # print(f"Camera transform: {self.camera.get_transform()}")
             # print(f"Hero vehicle transform: {self.vehicle.get_transform()}")
 
@@ -785,7 +801,7 @@ env = VecTransposeImage(env)
 ################################################################################################
 ############### TRAINED MODEL TEST #############################################################
 ################################################################################################
-# # Specify the path to your saved model
+# # Specify the path to our saved model
 # model_path = "C:/Users/legos/Documents/Post Grad Learning/Projects/DinkleBot/models/ppo_carla_model.zip"
 
 # # Load the trained model
