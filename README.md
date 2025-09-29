@@ -1,5 +1,7 @@
 CARLA Self-Driving RL Project
 
+Project resumed as of 9/22/2025. Current focus: training stability, observability, and expected behavior.
+
 This project explores the basics of training a self-driving agent using reinforcement learning in the CARLA simulator. The current setup involves teaching an agent to follow a lead vehicle using visual input from a front-facing camera.
 
 Project Goals

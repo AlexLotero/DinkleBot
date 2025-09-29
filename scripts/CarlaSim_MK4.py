@@ -1,7 +1,5 @@
-######## To Do ########
-# reward seems to often be -0.25, even though it is moving and visual is maintained:
-# Visual Maintained is turning up 0, need to find why!!!
-########################
+# TODO: reward seems to often be -0.25, even though it is moving and visual is maintained:
+# TODO: Visual Maintained is turning up 0, need to find why!!!
 
 # C:\Users\legos\Documents\Miscellaneous\Programming\WindowsNoEditor
 # C:\Users\legos\Documents\Post Grad Learning\Projects\DinkleBot\scripts
@@ -14,6 +12,9 @@ import time
 import math
 import signal
 import os
+import logging
+import os
+from datetime import datetime
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv, VecTransposeImage
@@ -33,8 +34,28 @@ distance_in_front = 5.0 # meters
 #     cv2.imshow("Camera Feed", array)
 #     # cv2.waitKey(1)
 
-###### ASK ##########
-# I am not sure the purpose of this callback class, callback as a functionality
+# Create logs directory
+os.makedirs("logs", exist_ok=True)
+
+# Create log file, named with timestamp
+log_filename = f"logs/training_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+
+logging.basicConfig(
+    filename=log_filename,
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+
+logger = logging.getLogger(__name__)
+
+# Log to console
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+logger.addHandler(console_handler)
+
+# We can use for custom logging, monitoring, or control logic during training
 class TrainingMonitorCallback(BaseCallback):
     def __init__(self, n_steps, total_timesteps, env, verbose=0):
         super(TrainingMonitorCallback, self).__init__(verbose)
@@ -51,7 +72,9 @@ class TrainingMonitorCallback(BaseCallback):
         # Print every iteration
         if self.current_step % self.n_steps == 0:
             iteration = self.current_step // self.n_steps
-            print(f"Iteration: {iteration}, Total Timesteps: {self.num_timesteps}")
+            # print(f"Iteration: {iteration}, Total Timesteps: {self.num_timesteps}")
+            logger.info(f"Iteration {iteration}, Total Timesteps={self.num_timesteps}")
+
         # Set record_video to True in CarlaEnv for the last iteration
         # if self.num_timesteps >= self.total_timesteps - self.n_steps:
         #     self.env.record_video = True
@@ -71,19 +94,19 @@ class CarlaEnv(gym.Env):
         self.latest_image = None  # Variable to store the most recent camera image
         self.camera_running = False  # Initialize a flag to indicate if the camera is running
         self.stop_flag = False # Flag to control when to stop the camera feed
-        self.camera_thread = None  # Initialize camera_thread <------------------------------------------ ###### ASK ######
+        self.camera_thread = None  # Initialize camera_thread, seperate background thread to keep camera display running, without blocking simulation or learning 
         self.collision_occurred = False # Initialize a flag to indicate if a collision has occurred
-        self.previous_location = None # Intialize the previous location variable <----------------------- ###### ASK ######
+        self.previous_location = None # Intialize the previous location variable, last recorded screen position of target vehicle
         self.max_steps = 2048  # Maximum steps per episode, may be edited as needed for training
         self.current_step = 0  # Step counter for the currently running episode
-        self.record_video = False  # Initialize video recording flag <----------------------------------- ###### ASK ######
+        self.record_video = False  # Initialize video recording flag, has video recording been enabled
         
         # Define action space: throttle and steering
-        self.action_space = spaces.Box(low=np.array([0.0, -1.0]), high=np.array([1.0, 1.0]), dtype=np.float32) ###### ASK ######
+        self.action_space = spaces.Box(low=np.array([0.0, -1.0]), high=np.array([1.0, 1.0]), dtype=np.float32) # actions available to take within CARLA env
         
         # Define observation space: for simplicity, using the camera image dimensions
         # self.observation_space = spaces.Box(low=0, high=255, shape=(224, 224, 3), dtype=np.uint8) # for pretrained CNN
-        self.observation_space = spaces.Box(low=0, high=255, shape=(600, 800, 3), dtype=np.uint8) # <------- ###### ASK ######
+        self.observation_space = spaces.Box(low=0, high=255, shape=(600, 800, 3), dtype=np.uint8) # the camera frame the hero sees
         
         # Create the camera listener, the listener "recieves" the image that can then be sent to wherever for processing
         self.setup_camera_listener()
@@ -195,7 +218,8 @@ class CarlaEnv(gym.Env):
         # for actor in self.world.get_actors().filter('*vehicle*'):
         #     actor.destroy()
 
-        # Re-select the hero vehicle's position and "move" the existing hero vehicle to that position <------ ##### ASK - SHOULD I JUST DESTROY THEM ABOVE AND THEN FULY RESPAWN THEM? BENEFIT TO KEEPING THEM ALIVE?
+        # Re-select the hero vehicle's position and "move" the existing hero vehicle to that position
+        # TODO: REVIEW BENEFITS OF MOVING HERO RATHER THAN RESPAWING
         hero_spawn_point = random.choice(self.world.get_map().get_spawn_points())
         self.vehicle.set_transform(hero_spawn_point)
 
@@ -292,14 +316,14 @@ class CarlaEnv(gym.Env):
         observation = self.get_observation() # observation, at this stage, is just the camera image after a step/action
         reward, done = self.compute_reward()
         # done = self.check_done()      # Commented out because we have nothing in the check done yet, seem to do it all elsewhere
-        truncated = False  # If you want to use truncation (optional)   ##### ASK #######
+        truncated = False  # episode only ends when max steps is reached or the collision occurs
         info = {}
-        if self.current_step % 100 == 0:
-            print("observation: ", observation)
-            print("reward: ", reward)
-            print("done: ", done)
-            print("truncated: ", truncated)
-            print("info: ", info)
+        # if self.current_step % 100 == 0:
+            # print("observation: ", observation)
+            # print("reward: ", reward)
+            # print("done: ", done)
+            # print("truncated: ", truncated)
+            # print("info: ", info)
             # time.sleep(5)
         return observation, reward, done, truncated, info
         # return observation, reward, done, info
@@ -326,13 +350,14 @@ class CarlaEnv(gym.Env):
             print("Max steps reached. done=True")
             done = True
 
-        # # Reward for staying on the road,                                 ####### POSSIBLY INCLUDE AGAIN NOW #########
+        # # Reward for staying on the road
+        # TODO: Consider reintroducing off-road penalty reward when stability is improved
         # if self.is_on_road():
         #     off_road_penalty = 1.0  # Positive reward for staying on the road
         # else:
         #     off_road_penalty -= 2.0  # Penalty for going off-road
 
-        # Reward based on speed - NOT CURRENLTY USING - TECHNICALLY IRRELEVENT FOR OUR PURPOSES
+        # Reward based on speed - NOT CURRENLTY USING - TECHNICALLY IRRELEVENT FOR OUR EVENTUAL PURPOSES
         speed = self.vehicle.get_velocity()
         speed_magnitude = int(np.linalg.norm([speed.x, speed.y, speed.z]))
         if speed_magnitude > 0:
@@ -346,7 +371,8 @@ class CarlaEnv(gym.Env):
 
         # Penalty for collisions, if collided, we weight the punishment for the eventual reward calculation
         if self.has_collided():
-            print("Collision occurred. done=True")
+            # print("Collision occurred. done=True")
+            logger.warning("Collision occurred. Setting done=True")
             collision_penalty = 5.0     # large penalty for collisions
             done = True     # the current iteration should end if there was a collision, can't recover from that
             time.sleep(0.2)     # was added as part of debugging, will likely be removed for final draft
@@ -368,21 +394,15 @@ class CarlaEnv(gym.Env):
         # Calculate total reward based on weighted sub rewards
         #reward = 0.1 * speed_reward + 1.0 * visual_maintained_reward - 1.0 * collision_penalty + - 0.5 * off_road_penalty + 1.0 * stability_reward
         reward = 2.5 * visual_maintained_reward - 1.5 * collision_penalty + - 1.0 * off_road_penalty + 1.5 * stability_reward + speed_reward
-        
-        # DEBUGGING CODE, I believe we were unable to see our hero car within the rendered world - ##### ASK #####
-        # screen_position = self.get_target_screen_location(self.target_vehicle)
-        # print("DEBUG Print:")
-        # relative_location = target_location - camera_location
-        # print(f"Relative Location: {relative_location}")
-        # DEBUGGING CODE, I believe we were unable to see our hero car within the rendered world - ##### ASK #####
 
-        # Debugging code to provide "status reports" throughout training - prints sub rewards, the total reward, and the screen position
-        # if self.current_step == 1 or self.current_step % 50 == 0:
-        #     print(f"Visual Maintained: {visual_maintained_reward}, Stability: {stability_reward}, "
-        #   f"Collision: {-collision_penalty}, Off-road: {-off_road_penalty}, Total: {reward}")
-        #     print(f"Screen Position: {screen_position}")
-            # print(f"Camera transform: {self.camera.get_transform()}")
-            # print(f"Hero vehicle transform: {self.vehicle.get_transform()}")
+        # Log reward results
+        logger.info(
+            f"Step {self.current_step}: "
+            f"Reward={reward:.2f}, Visual={visual_maintained_reward:.2f}, "
+            f"Stability={stability_reward:.2f}, Collision={collision_penalty}, "
+            f"OnRoad={not off_road_penalty}"
+        )
+
 
         return reward, done        # Return the reward reflecting the hero's performance
    
@@ -394,7 +414,7 @@ class CarlaEnv(gym.Env):
             screen_x, screen_y = screen_position
             screen_width, screen_height = 800, 600  # Screen dimensions
 
-            # "Normalize" position to the screen center                                             #### ASK #####
+            # "Normalize" position to the screen center, to ensure reward is consistent despite changes in screen resolution
             x_center, y_center = screen_width / 2, screen_height / 2
             distance_from_center = np.linalg.norm([screen_x - x_center, screen_y - y_center])
             max_distance = np.linalg.norm([x_center, y_center])
@@ -421,7 +441,7 @@ class CarlaEnv(gym.Env):
         # Convert relative location to a NumPy array for matrix operations
         relative_coords = np.array([relative_location.x, relative_location.y, relative_location.z])
 
-        # Define the intrinsic matrix (example values, adjust as needed)                        ###### ASK ######
+        # The intrinsic matrix (example values), 3D projection into 2D coordinates
         intrinsic_matrix = np.array([
             [800, 0, 400],  # Focal length in pixels, principal point (cx)
             [0, 800, 300],  # Focal length in pixels, principal point (cy)
@@ -453,7 +473,8 @@ class CarlaEnv(gym.Env):
 
         return False  # The vehicle is off the road
 
-    def rotate_to_camera(self, relative_location, camera_rotation):                                 ###### ASK ######
+    # translate target env location into camera coordinates
+    def rotate_to_camera(self, relative_location, camera_rotation):  
         # Convert CARLA rotation to radians
         pitch, yaw, roll = np.radians([camera_rotation.pitch, camera_rotation.yaw, camera_rotation.roll])
 
@@ -536,22 +557,6 @@ class CarlaEnv(gym.Env):
         return 0
         # Check if the episode is done
 
-    # def close(self):
-    #     # Destroy our hero vehicle
-    #     vehicle.destroy()
-    #     # Clean up resources
-    #     if self.camera is not None:
-    #         self.camera.stop()
-    #         self.camera.destroy()
-    #     # Stop the camera feed thread
-    #     self.camera_running = False
-    #     if self.camera_thread is not None:
-    #         self.camera_thread.join()
-    #     if self.video_out is not None:
-    #         self.video_out.release()  # Finalize and save the video
-    #     # Close OpenCV windows
-    #     cv2.destroyAllWindows()
-    #     print("GOT HERE")
     def close(self):
         # Destroy our hero vehicle
         if self.vehicle is not None:
@@ -607,11 +612,6 @@ def rotate_vector(vector, rotation):
     # Return the rotated vector
     return carla.Vector3D(x, y, z)
 
-def control_vehicle(camera_feed): # old, now unused code - cleanup
-    control = carla.VehicleControl()
-    control.throttle = 2.5  # Example action (throttle)
-    control.steer = 3.0     # Example action (steering)
-    vehicle.apply_control(control)
 
 def is_location_free(world, location, radius=2.0):
     # Check if there are any actors within a given radius of the specified location
@@ -630,23 +630,6 @@ def is_location_free(world, location, radius=2.0):
 #     cv2.imshow("Camera Feed", array)
 #     cv2.waitKey(1)
 
-def process_segmentation_image(image): # I believe this is also old, now unused code - cleanup
-    global last_frame_time
-
-    # Calculate the framerate
-    current_time = image.timestamp
-    if last_frame_time is not None:
-        fps = 1.0 / (current_time - last_frame_time)
-        # print(f"Framerate: {fps:.2f} FPS")
-    last_frame_time = current_time
-
-    # Convert the segmentation image to a format suitable for visualization
-    image.convert(carla.ColorConverter.CityScapesPalette)
-    array = np.frombuffer(image.raw_data, dtype=np.uint8)
-    array = array.reshape((image.height, image.width, 4))  # RGBA format
-    array = array[:, :, :3]  # Drop alpha channel
-    cv2.imshow("Segmentation Camera Feed", array)
-    cv2.waitKey(1)
 
 # Connect to the CARLA server - CARLA runs on port 2000 by default
 client = carla.Client('localhost', 2000)
@@ -698,7 +681,7 @@ vehicle = world.spawn_actor(hero_vehicle_bp, hero_spawn_point)
 camera_bp = blueprint_library.find('sensor.camera.rgb')
 camera_bp.set_attribute("fov", "110")  # Increase the field of view (default is usually 90)
 # Position the camera on top of the vehicle, tilted down slightly (tilt added during debugging)
-camera_transform = carla.Transform(carla.Location(x=1.5, z=2.4), carla.Rotation(pitch=-15)) # ######## ASK ########## #
+camera_transform = carla.Transform(carla.Location(x=1.5, z=2.4), carla.Rotation(pitch=-15)) 
 camera = world.spawn_actor(camera_bp, camera_transform, attach_to=vehicle)
 
 # Camera tweaks created during debugging, not currently in use
@@ -791,8 +774,7 @@ for NPC_vehicle in world.get_actors().filter('*vehicle*'):
 # Create an instance of our custom CARLA environment
 carla_env = CarlaEnv(world, vehicle, camera, target_vehicle, collision_sensor)
 
-############## ASK ##################################
-# Wrap the CARLA environment with DummyVecEnv
+# Wrap the CARLA environment with DummyVecEnv, for custom CARLA <--> PPO compatibility
 env = DummyVecEnv([lambda: carla_env])
 # Transpose the image channels for using image-based observations
 env = VecTransposeImage(env)
@@ -857,8 +839,8 @@ print("Using device:", model.device)
 # Train the model for a given number of timesteps
 total_timesteps_ = 1000000  # Example: 100,000 timesteps
 
-# Initialize the callback, I believe that this is how our model tracks the process of interacting with the CARLA env
-callback = TrainingMonitorCallback(n_steps=2048, total_timesteps=total_timesteps_, env=carla_env, verbose=1) #### ASK ######
+# Initialize the callback, monitors training progress, can print at fixed intervals for debug
+callback = TrainingMonitorCallback(n_steps=2048, total_timesteps=total_timesteps_, env=carla_env, verbose=1)
 
 # We begin training the model, one CARLA env iteration at a time, 2048 steps per iteration
 # 100,000 timesteps / 2048 n_steps = ~48 iterations
